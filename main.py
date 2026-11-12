@@ -1,9 +1,12 @@
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from google.cloud import firestore
 
 app = FastAPI(title="FastAPI + Firestore Microservice")
-db = firestore.Client()
+
+def get_db():
+    return firestore.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT", "project-f838104a-2d52-49a5-808"))
 
 class Item(BaseModel):
     name: str
@@ -20,19 +23,29 @@ def health_check():
 
 @app.post("/items/{item_id}")
 def create_item(item_id: str, item: Item):
-    doc_ref = db.collection("items").document(item_id)
-    doc_ref.set(item.model_dump())
-    return {"id": item_id, **item.model_dump()}
+    try:
+        doc_ref = get_db().collection("items").document(item_id)
+        doc_ref.set(item.model_dump())
+        return {"id": item_id, **item.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/items/{item_id}")
 def get_item(item_id: str):
-    doc = db.collection("items").document(item_id).get()
-    if not doc.exists:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return {"id": doc.id, **doc.to_dict()}
+    try:
+        doc = get_db().collection("items").document(item_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Item not found")
+        return {"id": doc.id, **doc.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/items")
 def list_items():
-    docs = db.collection("items").stream()
-    return [{"id": doc.id, **doc.to_dict()} for doc in docs]
-EO
+    try:
+        docs = get_db().collection("items").stream()
+        return [{"id": doc.id, **doc.to_dict()} for doc in docs]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
